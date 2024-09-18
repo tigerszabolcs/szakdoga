@@ -1,9 +1,10 @@
 from nicegui import ui
-from UI.ui_init import initUI
+from PyAva.UI.ui_scan import initUI
+
 
 class mainUI():
     tab_names = {
-        'A': 'Initial setup',
+        'A': 'Settings',
         'B': 'Scan',
         'C': 'Results'
     }
@@ -33,9 +34,9 @@ class mainUI():
         # This is for the already created tabs
         with ui.tab_panels(self.tabs, value='A').classes('w-full'):
             with ui.tab_panel(self.tab_names['A']):
-                self.ui_init.create_layout()
+                ui.label('Content of A')
             with ui.tab_panel(self.tab_names['B']):
-                ui.label('Content of B')
+                self.ui_init.create_layout()
             with ui.tab_panel(self.tab_names['C']):
                 ui.label('Content of C')
                 
