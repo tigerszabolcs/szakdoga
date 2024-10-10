@@ -1,19 +1,27 @@
+import os
+
 from nicegui import ui
-from PyAva.UI.ui_scan import initUI
+from PyAva.UI.ui_scan import scanUI
+from PyAva.UI.ui_init import initUI
 
 
 class mainUI():
+    
+    _instance = None
+    
     tab_names = {
         'A': 'Settings',
         'B': 'Scan',
         'C': 'Results'
     }
-    ui_init = initUI()
+
     def __init__(self):
+        self.ui_settings = initUI(self)
+        self.ui_scan = scanUI(self.ui_settings)
         self.tabs = self.create_tabs()
         self.populate_tabs()
         self.set_footer()
-        
+
     def create_tabs(self) -> ui.tabs:
         with ui.header().classes(replace='row items-center') as header: # blue header line 
             with ui.tabs() as tabs:
@@ -34,11 +42,10 @@ class mainUI():
         # This is for the already created tabs
         with ui.tab_panels(self.tabs, value='A').classes('w-full'):
             with ui.tab_panel(self.tab_names['A']):
-                ui.label('Content of A')
+                pass
+                self.ui_settings.create_layout()
             with ui.tab_panel(self.tab_names['B']):
-                self.ui_init.create_layout()
+                pass
+                self.ui_scan.create_layout()
             with ui.tab_panel(self.tab_names['C']):
                 ui.label('Content of C')
-                
-def setup_ui():
-    mainUI()
