@@ -1,8 +1,9 @@
-# PyAva/Modules/base_scanner.py
 import os
 import uuid
 import xml.etree.ElementTree as ET
+import logging
 
+logger = logging.getLogger(__name__)
 class BaseScanner:
     def __init__(self):
         self.id = self.generate_uid()

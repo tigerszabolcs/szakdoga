@@ -4,8 +4,10 @@ import os
 import asyncio
 import nmap
 import xml.etree.ElementTree as ET
+import logging
 from PyAva.Modules.BaseScanner import BaseScanner
 
+logger = logging.getLogger(__name__)
 
 class ScriptsScanner(BaseScanner):
     def __init__(self):

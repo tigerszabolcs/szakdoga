@@ -1,55 +1,42 @@
-# PyAva/Modules/scanner_openvas.py
-from gvm.connections import UnixSocketConnection, TLSConnection
+import ssl
+import logging
+from gvm.connections import  TLSConnection
 from gvm.protocols.gmp import Gmp
 from gvm.transforms import EtreeCheckCommandTransform
 from PyAva.Modules.BaseScanner import BaseScanner
 
-class OpenVASScanner(BaseScanner): #!!!!TODO: Heavily modify this!!!!
-    
+logger = logging.getLogger(__name__)
+class OpenVASScanner(Gmp):
+
     HOST: str = '127.0.0.1'
-    PORT: int = 443
+    PORT: int = 9390
     USERNAME: str = 'admin'
     PASSWORD: str = 'admin'
-    UNIX_SOCKET_PATH = '/var/run/gvmd.sock'
-    
+
     def __init__(self):
-        super().__init__()
-        self.connection = self.connect()
-        self.transform = EtreeCheckCommandTransform()
-        self.gmp = Gmp(connection=self.connection, transform=self.transform)
+        # try:
+        self.connection = TLSConnection(hostname=self.HOST, port=self.PORT)
+        super().__init__(connection=self.connection)
+        self._gmp = self.determine_supported_gmp()
         print(self.version_check())
-        self.gmp.authenticate('admin', 'admin_password')  # Replace with actual credentials
-        
-        
-    def connect(self):
-        # unix_con = UnixSocketConnection(path=self.UNIX_SOCKET_PATH)
-        tls_con = TLSConnection(hostname=self.HOST, port=self.PORT)
-        return tls_con
-    
+        if not self._gmp.is_authenticated():
+            ret = self._gmp.authenticate(username=self.USERNAME, password=self.PASSWORD)
+
+        # self.transform = EtreeCheckCommandTransform()
+        # except ssl.SSLError as e:
+        #     print(f"SSL error: {e}")
+        # except Exception as e:
+        #     print(f"An error occurred: {e}")
+
+    def target_scan(self):
+        targetsXmlList = self._gmp.get_targets(filter_string="rows=1000") # Get all targets from OpenVAS
+        return targetsXmlList
+
     def version_check(self):
-        with Gmp(connection=self.connection, transform=self.transform) as gmp:
-            gmp.authenticate(self.USERNAME, self.PASSWORD)
-            response = gmp.get_version()
+        response = self._gmp.get_version()
         return response
 
 if __name__ in {"__main__", "__mp_main__"}:
     scanner = OpenVASScanner()
-    # def start_scan(self, target, scan_config):
-    #     response = self.gmp.create_target(name='Target', hosts=target)
-    #     target_id = response.get('id')
-    #     response = self.gmp.create_task(name='Scan', config_id=scan_config, target_id=target_id)
-    #     task_id = response.get('id')
-    #     self.gmp.start_task(task_id)
-    #     return task_id
-    # 
-    # def stop(self, task_id):
-    #     self.gmp.stop_task(task_id)
-    # 
-    # def is_scanning(self, task_id):
-    #     response = self.gmp.get_task(task_id)
-    #     status = response.find('status').text
-    #     return status == 'Running'
-    # 
-    # def get_results(self, task_id):
-    #     response = self.gmp.get_results(task_id=task_id)
-    #     return response
+    print(scanner.target_scan())
+    

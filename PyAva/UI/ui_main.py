@@ -1,9 +1,11 @@
 import os
-
+import logging
 from nicegui import ui
 from PyAva.UI.ui_scan import scanUI
 from PyAva.UI.ui_init import initUI
+from PyAva.UI.ui_result import resultsUI
 
+logger = logging.getLogger(__name__)
 
 class mainUI():
     
@@ -16,8 +18,9 @@ class mainUI():
     }
 
     def __init__(self):
-        self.ui_settings = initUI(self)
-        self.ui_scan = scanUI(self.ui_settings)
+        self.ui_settings = initUI()
+        self.ui_scan = scanUI()
+        self.ui_results = resultsUI()
         self.tabs = self.create_tabs()
         self.populate_tabs()
         self.set_footer()
@@ -42,10 +45,8 @@ class mainUI():
         # This is for the already created tabs
         with ui.tab_panels(self.tabs, value='A').classes('w-full'):
             with ui.tab_panel(self.tab_names['A']):
-                pass
                 self.ui_settings.create_layout()
             with ui.tab_panel(self.tab_names['B']):
-                pass
                 self.ui_scan.create_layout()
             with ui.tab_panel(self.tab_names['C']):
-                ui.label('Content of C')
+                self.ui_results.create_layout()

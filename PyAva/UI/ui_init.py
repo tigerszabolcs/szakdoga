@@ -1,17 +1,24 @@
-import os
-import sys
 from nicegui import ui
+from PyAva.Modules.Database  import Database
 import re
+import logging
 
+logger = logging.getLogger(__name__)
 class initUI():
+    first_init = True
 
-    def __init__(self, parent):
+    def __init__(self):
+        self.db = Database()
         self.script_name = None
-        self.parent = parent
         self.scan_arguments = None
         self.ip_range_input = None
         self.scan_type = None
+        self.card_container = None
         self.scanner_data: list[dict] = []
+        self.script_data = {}
+        self.reset_script_db()
+        self.load_settings_from_db()
+        self.first_init = False
 
     def create_layout(self):
         with ui.grid():
@@ -28,8 +35,37 @@ class initUI():
                         ui.button('Clear all scanners', on_click=self.clear_scanner_data)
                 with ui.column().style('position: absolute; right:0;top:0; width: 50%;border-left: 3px solid #ccc;') as self.card_container:
                     ui.label('Scanners List')
-                    self.update_scanner_cards()  # Initialize scanner cards
+                    self.update_scanner_cards()  # Initialize scanner cards at the start of this with statement
 
+    def load_settings_from_db(self):
+        scanner_data = self.db.get_scanner_data()
+        for data in scanner_data:
+            scan_type, ip_range, scan_arguments = data[1:]
+            self.scanner_data.append({
+                "ip_range": ip_range,
+                "scan_type": scan_type,
+                "scan_arguments": scan_arguments.split(' ')
+            })
+        if self.card_container is not None:
+            self.update_scanner_cards()
+        #TODO: El lehessen menteni majd több scan configot is, ezeket egy ID-vel kellene jelölni.
+    
+    def reset_script_db(self):
+        self.script_data = {'script': None,
+                            'enabled': 0}
+        if self.db.get_script_data() is None:
+            self.db.insert_script_data(self.script_data['script'], self.script_data['enabled'])
+        else:
+            self.db.update_script_data(self.script_data['script'], self.script_data['enabled'])
+
+
+        
+    def get_settings(self) -> dict:
+        nmap_data = self.scanner_data
+        script_data = self.script_data
+        return {'nmap': nmap_data,
+                'script': script_data}
+        
     def create_nmap_input(self):
         nmap_ip_range_input = ui.input('Enter the target IP address',
                                        validation=lambda value: 'Invalid IP address!'
@@ -58,7 +94,10 @@ class initUI():
         switch = ui.switch('Scan with scripts', on_change=lambda: self.on_switch_scripts_change(switch, script))
         with ui.column().bind_visibility_from(switch, 'value'):
             ui.label('Select Nmap script')
-            script = ui.select(['vulners.nse', 'vulscan.nse'], value='vulners.nse')
+            script = ui.select(['vulners.nse', 'vulscan.nse'], value='vulners.nse', on_change=lambda: self.on_script_select_change(script.value))
+
+    def on_script_select_change(self, value):
+        self.script_data['script'] = value
 
     def on_xml_file_upload(self, file):
         # Handle the uploaded XML file
@@ -68,25 +107,25 @@ class initUI():
     def on_switch_scripts_change(self,switch_input, script_input, ip_range='127.0.0.1'):
         self.script_name = script_input.value
         print('Nmap scripts clicked with ip range:', self.get_ip_range())
+        logger.info(f'Scripts enabled: {switch_input.value}')
         if switch_input.value:
             script_name = self.script_name.split('.')[0]
-            # _arguments = ['-sV' ,'--script', script_name]
-            _scanner_dict = {"ip_range": None,
-                            "scan_type": 'nmap_scripts',
-                            "scan_arguments": None,
-                             "script": script_name}
+            script_dict = {'script': script_name,
+                           'enabled':switch_input.value}
             if not self.is_nmap_present():
                 ui.notify('Nmap scanner is not added', title='Warning', duration=3000)
+                logger.warning('Nmap scanner is not added')
+                switch_input.value = False
             else:
-                self.scanner_data.append(_scanner_dict)
+                self.script_data = script_dict
+                self.db.update_script_data(script_dict['script'], script_dict['enabled'])
                 self.update_scanner_cards()
         else:
             # Remove the script scanner from the list
-            for scanner in self.scanner_data:
-                if scanner['scan_type'] == 'nmap_scripts':
-                    self.scanner_data.remove(scanner)
+            self.reset_script_db()
             self.update_scanner_cards()
             ui.notify('Scripts are disabled', title='Warning', duration=3000)
+            logger.warning('Scripts are disabled')
             
     def is_nmap_present(self):
         for scanner in self.scanner_data:
@@ -95,15 +134,16 @@ class initUI():
         return False
     
     def on_add_nmap_click(self, scan_type, ip_range, scan_arguments):
+        logger.info(f'Nmap scanner added with IP range: {ip_range} and arguments: {scan_arguments}')
         if scan_arguments is None:
-            argument_list = ['-sV']
+            argument_list = []
         else:
             argument_list = self.split_arguments(scan_arguments)
         _scanner_dict = {"ip_range": ip_range,
                          "scan_type": scan_type,
-                         "scan_arguments": argument_list,
-                         "script": None}
+                         "scan_arguments": argument_list}
         self.scanner_data.append(_scanner_dict)
+        self.db.insert_scanner_data(scan_type, ip_range, scan_arguments)
         print(f"Added scanner: {self.scanner_data}")
         self.update_scanner_cards()
 
@@ -111,23 +151,30 @@ class initUI():
         # Remove scanner by index and refresh the cards
         if 0 <= index < len(self.scanner_data):
             del self.scanner_data[index]
+            self.db.delete_by_id(index+1, 'scanner_data')
+            logger.info(f"Removed scanner at index {index}: {self.scanner_data}")
             print(f"Removed scanner at index {index}: {self.scanner_data}")
             self.update_scanner_cards()
 
     def update_scanner_cards(self):
         # Clear all existing cards and repopulate with current scanner data
         self.card_container.clear()
+        logger.info(f"Updating scanner cards: {self.scanner_data}")
         print(f"Updating scanner cards: {self.scanner_data}")
         for index, scanner in enumerate(self.scanner_data):
             with self.card_container:
                 with ui.card():
                     ui.label(f"Scanner: {scanner['ip_range']} | Type: {scanner['scan_type']} | Arguments: {scanner['scan_arguments']}")
-                    # Add a delete button for each card
                     ui.button('x', on_click=lambda idx=index: self.remove_scanner(idx))
+        if self.script_data['enabled']:
+            with self.card_container:
+                ui.label('Scripts are enabled').style('color: red')
 
     def clear_scanner_data(self):
         self.clear_input()
         self.scanner_data.clear()
+        self.reset_script_db()
+        logger.info("Cleared all scanner data")
         print("Cleared all scanner data")
         self.update_scanner_cards()
 
@@ -135,6 +182,7 @@ class initUI():
         self.ip_range_input.value = ''
         self.scan_arguments.value = ''
         self.scan_type.value = 'nmap'
+        logger.info("Cleared input fields")
         print("Cleared input fields")
 
     def get_ip_range(self):

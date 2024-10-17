@@ -1,4 +1,7 @@
 import xml.etree.ElementTree as ET
+import logging
+
+logger = logging.getLogger(__name__)
 
 class resultParser:
     def __init__(self):
