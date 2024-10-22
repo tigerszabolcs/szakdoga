@@ -12,9 +12,12 @@ class BaseScanner:
         self.scanresults_path = os.path.join('..', 'data', 'scanresults')
 
     def generate_uid(self):
-        return str(uuid.uuid4())
+        _id = uuid.uuid4()
+        logger.info("Generating UID {}".format(_id))
+        return str(_id)
 
     def save_scan_result(self, host, scan_result):
+        logger.info(f"Saving scan result for host {host}")
         file_path = os.path.join(self.scanresults_path, f'scan_{self.id}.xml')
         if os.path.exists(file_path):
             tree = ET.parse(file_path)

@@ -12,6 +12,7 @@ class Database:
 
     def create_table(self):
         try:
+            logger.info("creating DB's")
             with self.connection:
                 self.connection.execute('''
                     CREATE TABLE IF NOT EXISTS scanner_data (
@@ -21,6 +22,7 @@ class Database:
                         scan_arguments TEXT
                     )
                 ''')
+                logger.info("scanner_data created")
                 self.connection.execute('''
                     CREATE TABLE IF NOT EXISTS script_data (
                         id INTEGER PRIMARY KEY,
@@ -28,6 +30,7 @@ class Database:
                         enabled INTEGER
                     )
                 ''')
+                logger.info("script_data created")
                 self.connection.execute('''
                     CREATE TABLE IF NOT EXISTS results (
                         id INTEGER PRIMARY KEY,
@@ -36,6 +39,7 @@ class Database:
                         script_scan_id TEXT
                     )
                     ''')
+                logger.info("results data created")
         except sqlite3.Error as e:
             logger.error(f"Error creating table: {e}")
 
@@ -43,6 +47,7 @@ class Database:
         try:
             with self.connection:
                 print("Inserting scanner data")
+                logger.info(f"nmap data inserted into scanner_data table: {scan_type}; {ip_range}; {scan_arguments}")
                 self.connection.execute('''
                     INSERT INTO scanner_data (scan_type, ip_range, scan_arguments)
                     VALUES (?, ?, ?)
@@ -66,6 +71,7 @@ class Database:
         try: 
             with self.connection:
                 self.connection.execute(f'DELETE FROM {what} WHERE id = ?', (id,))
+                logger.info(f"Line deleted from {what} with id {id}")
         except sqlite3.Error as e:
             logger.error(f"Error deleting data: {e}")
     
@@ -124,5 +130,6 @@ class Database:
                 self.connection.execute('DELETE FROM scanner_data')
                 self.connection.execute('DELETE FROM script_data')
                 self.connection.execute('DELETE FROM results')
+                logger.info("database flushed")
         except sqlite3.Error as e:
             logger.error(f"Error clearing data: {e}")

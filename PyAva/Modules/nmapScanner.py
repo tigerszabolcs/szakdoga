@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class Scanner(BaseScanner):
     def __init__(self):
         super().__init__()
-        print("Nmap scanner created")
+        logger.info("Creating nmap scanner")
         self.scn = nmap.PortScannerAsync()
         self.is_async = True
         self.scan_completed = False
@@ -20,12 +20,15 @@ class Scanner(BaseScanner):
     def do_scan(self, ip_range, arguments: list):
         self.scan_completed = False
         joined_arguments = self.join_arguments(arguments)
+        logger.info(f"Scanning {ip_range} with arguments: {joined_arguments} id: {self.id}")
         print(f"Scanning {ip_range} with arguments: {joined_arguments} id: {self.id}")
         if self.is_async:
             self.scn.scan(hosts=ip_range, arguments=joined_arguments, callback=self.scan_callback)
 
     def scan_callback(self, host, scan_result):
+        scan_result['nmap'] =  host
         self.save_scan_result(host, scan_result)
+        logger.info(f"Host: {host} scanned: {scan_result['scan']}")
         print(f"Host: {host} scanned: {scan_result['scan']}")
         # if not self.scn.still_scanning():
         #     print("Scan completed id: ", self.id)

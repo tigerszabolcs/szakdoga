@@ -92,7 +92,7 @@ class scanUI():
             self.console_log(f'Parsing scan results for scan {_id}')
             filename = os.path.join('..', 'data', 'scanresults', f'scan_{_id}.xml')
             ip_and_port = self.parse_nmap_scan_results(filename)
-            ip_range = ','.join(ip_and_port.keys())
+            ip_range = ', '.join(ip_and_port.keys())
             ports = set()
             for port_list in ip_and_port.values():
                 ports.update(port_list)
@@ -194,15 +194,12 @@ class scanUI():
                 if self.script_data['enabled'] and self.script_data != {}:
                     filename = os.path.join('..', 'data', 'scanresults', f'scan_{_id}.xml')
                     await self.wait_for_file(filename)
-                    script_id = self.start_script_scan(id_list['nmap'], self.script_data['script'])
+                    script_id = await self.start_script_scan(id_list['nmap'], self.script_data['script'])
                     id_list['script'].append(script_id)
                 _dtime = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 self.db.insert_result_data(str(_dtime), str(id_list['nmap']), str(id_list['script']))
                 self.console_log('Script scans completed')
                 break
             await asyncio.sleep(1)
-    #INFO: Add a way to choose the arguments
-    #TODO: több scan-t is le lehessen futtatni egyszerre
-    #TODO: Add a way to show the progress of the scan
     #TODO: Add a way to display the results of the scan
     #TODO: Ütemezni lehessen a scannereket pl.: cron, vagy pl nmap lefutása után futtasa az openvas scannt a megkapott ip-ken

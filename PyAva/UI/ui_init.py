@@ -51,6 +51,7 @@ class initUI():
         #TODO: El lehessen menteni majd több scan configot is, ezeket egy ID-vel kellene jelölni.
     
     def reset_script_db(self):
+        logger.info("resetting script data in db")
         self.script_data = {'script': None,
                             'enabled': 0}
         if self.db.get_script_data() is None:
@@ -86,6 +87,7 @@ class initUI():
         ui.button('Add OpenVAS Scanner', on_click=self.on_add_openvas_click)
         
     def on_add_openvas_click(self):
+        logger.info("OpenVAS added")
         print('OpenVAS clicked with ip range:', self.get_ip_range())
         pass
             # self.on_add_click('openvas')

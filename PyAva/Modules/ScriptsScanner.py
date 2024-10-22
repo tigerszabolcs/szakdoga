@@ -18,21 +18,23 @@ class ScriptsScanner(BaseScanner):
 
     async def do_scan(self, ip_range, arguments: list):
         """Run an nmap scan with a specified script on the given IP range and ports."""
+        logger.info(f"starting scan on {ip_range}, with arguments: {arguments}")
         self.scan_completed = False
         joined_arguments = self.join_arguments(arguments)
         # Perform the scan asynchronously
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.run_scan, ip_range, joined_arguments)
-
         self.scan_completed = True
 
     def run_scan(self, ip_range, arguments: str):
         """Directly executes the scan using PortScanner and processes results."""
         try:
+            logger.info("scanning...")
             self.scn.scan(hosts=ip_range, arguments=f'{arguments}')
             # Process and save the scan results once the scan is complete
             self.parse_and_save_results(ip_range)
         except nmap.PortScannerError as e:
+            logger.error(f"Scan failed: {e}")
             print(f"Scan failed: {e}")
 
     def join_arguments(self, arguments: list) -> str:
@@ -41,6 +43,7 @@ class ScriptsScanner(BaseScanner):
 
     def parse_and_save_results(self, ip_range):
         """Parse nmap scan results and save to XML file format."""
+        logger.info("Parsing result")
         file_path = os.path.join(self.scanresults_path, f'scan_{self.id}.xml')
         root = ET.Element("ScanResults")
         result_element = ET.SubElement(root, "Result")
@@ -64,6 +67,7 @@ class ScriptsScanner(BaseScanner):
         # Write to file
         tree = ET.ElementTree(root)
         tree.write(file_path, encoding='utf-8', xml_declaration=True)
+        logger.info(f"Scan results saved to {file_path}")
         print(f"Scan results saved to {file_path}")
 
     def is_scanning(self):
