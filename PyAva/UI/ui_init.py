@@ -27,16 +27,37 @@ class initUI():
                     ui.label('Initial setup')
                     with ui.expansion('Nmap Scanner'):
                         self.create_nmap_input()
-                    with ui.expansion('OpenVAS Scanner'):
-                        self.create_openvas_input()
                     with ui.expansion('Nmap Scripts'):
                         self.create_nmap_scripts_input()
+                    with ui.expansion('OpenVAS Scanner'):
+                        self.create_openvas_input()
+                    with ui.expansion("Cron Schedule"):
+                        self.create_schedule_input()
                     with ui.expansion('Actions'):
                         ui.button('Clear all scanners', on_click=self.clear_scanner_data)
+                        ui.button('Clear database', on_click=self.db.clear_data)
                 with ui.column().style('position: absolute; right:0;top:0; width: 50%;border-left: 3px solid #ccc;') as self.card_container:
                     ui.label('Scanners List')
                     self.update_scanner_cards()  # Initialize scanner cards at the start of this with statement
+    
+    def create_schedule_input(self):
+        cron_input = ui.input('Set a new Cron expression')
+        ui.button('Save Schedule',
+                  on_click=lambda: self.save_schedule(cron_input.value))
+        existing_schedules = self.db.get_all_cron_schedules()
+        if existing_schedules:
+            ui.label('Or select an existing schedule:').style('border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px;')
+            schedule_dropdown = ui.select([s for s in existing_schedules])
+            ui.button('Set as Schedule', on_click=lambda: self.set_valid_schedule(schedule_dropdown.value))
+        
+    def save_schedule(self, cron_expression):
+        self.db.insert_cron_schedule(cron_expression)
+        ui.notify('Schedule saved successfully')
 
+    def set_valid_schedule(self, cron_expression):
+        self.db.insert_cron_schedule(cron_expression, new=False)
+        ui.notify('Valid schedule updated successfully')
+        
     def load_settings_from_db(self):
         scanner_data = self.db.get_scanner_data()
         for data in scanner_data:
@@ -96,7 +117,7 @@ class initUI():
         switch = ui.switch('Scan with scripts', on_change=lambda: self.on_switch_scripts_change(switch, script))
         with ui.column().bind_visibility_from(switch, 'value'):
             ui.label('Select Nmap script')
-            script = ui.select(['vulners.nse', 'vulscan.nse'], value='vulners.nse', on_change=lambda: self.on_script_select_change(script.value))
+            script = ui.select(['vulners.nse', 'vulscan/.nse'], value='vulners.nse', on_change=lambda: self.on_script_select_change(script.value))
 
     def on_script_select_change(self, value):
         self.script_data['script'] = value

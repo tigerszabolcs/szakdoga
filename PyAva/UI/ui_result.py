@@ -1,73 +1,117 @@
-from nicegui import ui
-# PyAva/UI/ui_results.py
-import os
-import datetime
-from nicegui import ui
 from xml.etree import ElementTree as ET
-from PyAva.Modules.Database import Database
+import os
+from nicegui import ui
+import json
+import sqlite3
 import logging
-import pdfkit
+from PyAva.Modules.Database import Database
 
 logger = logging.getLogger(__name__)
+SCAN_DIR = "../data/scanresults/"
 
 class resultsUI:
-
     def __init__(self):
         self.db = Database()
-        self.scan_results = []
-        self.selected_scan_id = None
 
+    def parse_nmap_scan(self, nmap_scan_id):
+        filepath = os.path.join(SCAN_DIR, f'scan_{nmap_scan_id}.xml')
+        if not os.path.exists(filepath):
+            return None
+
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        nmap_results = {}
+
+        for result in root.findall('Result'):
+            ip = result.find('nmap').text
+            scan_text = result.find('scan').text
+            if scan_text:
+                try:
+                    # Replace single quotes with double quotes
+                    scan_text = scan_text.replace("'", '"')
+                    scan_data = json.loads(scan_text)
+                    nmap_results[ip] = scan_data
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error decoding JSON for IP {ip}: {e}")
+            else:
+                logger.error(f"Scan text is missing or empty for IP {ip}")
+
+        return nmap_results
+
+    # Parsing script scan XML
+    def parse_script_scan(self, script_scan_id):
+        filepath = os.path.join(SCAN_DIR, f'scan_{script_scan_id}.xml')
+        if not os.path.exists(filepath):
+            return None
+
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        script_results = {}
+
+        for result in root.findall('Result'):
+            ip = result.find('IP').text
+            state = result.find('State').text
+            protocols_text = result.find('Protocols').text
+            try:
+                # Replace single quotes with double quotes
+                protocols_text = protocols_text.replace("'", '"')
+                protocols = json.loads(protocols_text)
+            except json.JSONDecodeError as e:
+                logger.error(f"Error decoding JSON for IP {ip}: {e}")
+                continue
+            script_results[ip] = {'state': state, 'protocols': protocols}
+
+        return script_results
+
+    # Merging nmap and script scan results
+    def merge_results(self, nmap_results, script_results):
+        merged_results = {}
+        for ip, nmap_data in nmap_results.items():
+            merged_results[ip] = {'nmap': nmap_data, 'script': script_results.get(ip, {})}
+            
+        for ip, script_data in script_results.items():
+            if ip not in merged_results:
+                merged_results[ip] = {'nmap': {}, 'script': script_data}
+
+        return merged_results
+
+    # Querying from the SQLite database to retrieve scan data
+    def get_scan_ids(self, date):
+        result = self.db.get_results_by_date(date)
+        if result:
+            nmap_scan_id_str, script_scan_id_str = result[0]
+            nmap_scan_id = nmap_scan_id_str.strip("[]'\"")
+            script_scan_id = script_scan_id_str.strip("[]'\"")
+            return nmap_scan_id, script_scan_id
+        else:
+            return None, None
+
+    # Function to display results using NiceGUI
+    def display_results(self, results):
+        for ip, data in results.items():
+            if not data['nmap'] and not data['script']:
+                continue  # Skip if both nmap and script results are empty
+            with ui.card().tight():
+                ui.label(f'IP: {ip}')
+                with ui.column():
+                    ui.label(f"Nmap Results: {json.dumps(data['nmap'], indent=2)}")
+                    ui.label(f"Script Results: {json.dumps(data['script'], indent=2)}")
+
+    # Function to create the UI layout
     def create_layout(self):
-        with ui.grid():
-            with ui.column():
-                with ui.row():
-                    self.scan_dropdown = ui.select(options=[], on_change=self.on_scan_select)
-                    ui.button('Download PDF', on_click=self.download_pdf)
-                self.results_table = ui.table(columns=['IP', 'Open Ports'], rows=[])
-                self.results_chart = ui.highchart()
-                self.load_scan_options()
+        # List available scan dates from the database
+        dates = self.db.get_scan_dates()
+        ui.label('Select a scan date:')
+        date_dropdown = ui.select([d for d in dates])
+        ui.button('Load Results', on_click=lambda : self.load_result(date_dropdown.value))
 
-    def load_scan_options(self):
-        scan_times = self.db.get_scan_times()
-        self.scan_dropdown.options = [str(scan_time) for scan_time in scan_times]
-
-    def on_scan_select(self, event):
-        selected_time = event.value
-        self.selected_scan_id = self.db.get_scan_id_by_time(selected_time)
-        self.display_results()
-
-    def display_results(self):
-        if self.selected_scan_id:
-            self.scan_results = self.db.get_scan_results(self.selected_scan_id)
-            self.update_table()
-            self.update_chart()
-
-    def update_table(self):
-        self.results_table.rows = [
-            {'IP': result['ip'], 'Open Ports': ', '.join(map(str, result['open_ports']))}
-            for result in self.scan_results
-        ]
-
-    def update_chart(self):
-        data = {
-            'labels': [result['ip'] for result in self.scan_results],
-            'datasets': [{
-                'label': 'Open Ports',
-                'data': [len(result['open_ports']) for result in self.scan_results]
-            }]
-        }
-        self.results_chart.update(data)
-
-    def download_pdf(self):
-        html_content = self.generate_html_report()
-        pdfkit.from_string(html_content, 'scan_results.pdf')
-        ui.download('scan_results.pdf')
-
-    def generate_html_report(self):
-        html = '<html><head><title>Scan Results</title></head><body>'
-        html += '<h1>Scan Results</h1>'
-        html += '<table border="1"><tr><th>IP</th><th>Open Ports</th></tr>'
-        for result in self.scan_results:
-            html += f'<tr><td>{result["ip"]}</td><td>{", ".join(map(str, result["open_ports"]))}</td></tr>'
-        html += '</table></body></html>'
-        return html
+    def load_result(self, value):
+        selected_date = value
+        nmap_scan_id, script_scan_id = self.get_scan_ids(selected_date)
+        if nmap_scan_id and script_scan_id:
+            nmap_results = self.parse_nmap_scan(nmap_scan_id)
+            script_results = self.parse_script_scan(script_scan_id)
+            merged_results = self.merge_results(nmap_results, script_results)
+            self.display_results(merged_results)
+        else:
+            ui.notify('No scan data available for the selected date', level='error')
