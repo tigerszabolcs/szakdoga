@@ -4,7 +4,7 @@ import os
 import datetime
 import logging
 
-def start(window_size = (1280, 1024)):
+def start(window_size = (640, 1024)):
     configure_logger()
     main = mainUI()
     ui.run(window_size=window_size, reload=False) # native = True: it opens in a native window instaed of a webbrowser
@@ -19,7 +19,7 @@ def configure_logger():
 
     logging.basicConfig(
         filename=log_filename,
-        level=logging.DEBUG,
+        level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )

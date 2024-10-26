@@ -38,7 +38,8 @@ class Database:
                         id INTEGER PRIMARY KEY,
                         scan_date TEXT,
                         nmap_scan_id TEXT,
-                        script_scan_id TEXT
+                        script_scan_id TEXT,
+                        ovas_scan_id TEXT
                     )
                     ''')
                 logger.info("results data created")
@@ -47,8 +48,64 @@ class Database:
                                         cron_expression TEXT,
                                         valid BOOLEAN DEFAULT FALSE
                                     )''')
+                logger.info("cron_schedules table created")
+                self.connection.execute('''
+                    CREATE TABLE IF NOT EXISTS openvas_credentials (
+                        id INTEGER PRIMARY KEY,
+                        username TEXT,
+                        password TEXT,
+                        is_set BOOLEAN DEFAULT FALSE
+                    )
+                ''')
+                logger.info("openvas_credentials table created")
         except sqlite3.Error as e:
             logger.error(f"Error creating table: {e}")
+
+    def save_openvas_credentials(self, username, password):
+        try:
+            with self.connection:
+                query = "INSERT INTO openvas_credentials (username, password, is_set) VALUES (?, ?, ?)"
+                self.connection.execute(query, (username, password, 1))
+                logger.info("OpenVAS credentials saved to the database")
+        except sqlite3.Error as e:
+            logger.error(f"Error saving OpenVAS credentials: {e}")
+
+    def get_all_credentials(self):
+        try:
+            with self.connection:
+                cursor = self.connection.execute('SELECT username FROM openvas_credentials')
+                return [{'username': row[0]} for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error getting credentials: {e}")
+            return []
+
+    def set_current_credentials(self, username):
+        try:
+            with self.connection:
+                # Set all credentials to not set
+                self.connection.execute('UPDATE openvas_credentials SET is_set = FALSE')
+                # Set the selected credentials to set
+                self.connection.execute('UPDATE openvas_credentials SET is_set = TRUE WHERE username = ?', (username,))
+                logger.info(f"Set credentials for {username} as current")
+        except sqlite3.Error as e:
+            logger.error(f"Error setting current credentials: {e}")
+            
+    def delete_credentials(self, username):
+        try:
+            with self.connection:
+                self.connection.execute('DELETE FROM openvas_credentials WHERE username = ?', (username,))
+                logger.info(f"Deleted credentials for {username}")
+        except sqlite3.Error as e:
+            logger.error(f"Error deleting credentials: {e}")
+            
+    def get_current_credentials(self):
+        try:
+            with self.connection:
+                cursor = self.connection.execute('SELECT username FROM openvas_credentials WHERE is_set = TRUE')
+                return cursor.fetchone()
+        except sqlite3.Error as e:
+            logger.error(f"Error getting current credentials: {e}")
+            return None
 
     def insert_scanner_data(self, scan_type, ip_range, scan_arguments):
         try:

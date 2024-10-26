@@ -16,7 +16,7 @@ class initUI():
         self.card_container = None
         self.scanner_data: list[dict] = []
         self.script_data = {}
-        self.reset_script_db()
+        self.set_script_data()
         self.load_settings_from_db()
         self.first_init = False
 
@@ -33,11 +33,12 @@ class initUI():
                         self.create_openvas_input()
                     with ui.expansion("Cron Schedule"):
                         self.create_schedule_input()
-                    with ui.expansion('Actions'):
+                    with ui.expansion('Misc Settings'):
+                        with ui.expansion('OpenVAS Credentials'):
+                            self.create_credentials_input()
                         ui.button('Clear all scanners', on_click=self.clear_scanner_data)
                         ui.button('Clear database', on_click=self.db.clear_data)
                 with ui.column().style('position: absolute; right:0;top:0; width: 50%;border-left: 3px solid #ccc;') as self.card_container:
-                    ui.label('Scanners List')
                     self.update_scanner_cards()  # Initialize scanner cards at the start of this with statement
     
     def create_schedule_input(self):
@@ -49,6 +50,49 @@ class initUI():
             ui.label('Or select an existing schedule:').style('border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px;')
             schedule_dropdown = ui.select([s for s in existing_schedules])
             ui.button('Set as Schedule', on_click=lambda: self.set_valid_schedule(schedule_dropdown.value))
+
+    def create_credentials_input(self):
+        existing_credentials = self.db.get_all_credentials()
+        ui.label('Select existing credentials:')
+        with ui.row():
+            self.credentials_dropdown = ui.select(
+                [cred['username'] for cred in existing_credentials],
+                on_change=lambda: self.on_credentials_select_change(self.credentials_dropdown.value)
+            )
+            ui.button('Delete Selected Item', on_click=self.on_delete_credentials_click)
+        ui.label('Or add new credentials:')
+        self.username_input = ui.input('Username')
+        self.password_input = ui.input('Password', password=True, password_toggle_button=True)
+        ui.button('Save Credentials', on_click=lambda: self.on_save_credentials_click(self.username_input.value, self.password_input.value))
+
+    def on_credentials_select_change(self, value):
+        # Update the database to set the selected credentials as the current ones
+        self.db.set_current_credentials(value)
+        self.update_credentials_dropdown()
+        ui.notify(f'Selected credentials: {value}', title='Info', duration=1000)
+        logger.info(f'Selected credentials: {value}')
+
+    def on_delete_credentials_click(self):
+        if self.credentials_dropdown.value:
+            self.db.delete_credentials(self.credentials_dropdown.value)
+            self.update_credentials_dropdown()
+            logger.info(f'Deleted credentials: {self.credentials_dropdown.value}')
+        else:
+            ui.notify('Please select a credential to delete', title='Warning', duration=1000)
+    def on_save_credentials_click(self, username, password):
+        if username and password:
+            # Save new credentials to the database
+            self.db.save_openvas_credentials(username, password)
+            self.update_credentials_dropdown()
+            self.username_input.clear()
+            self.password_input.clear()
+            logger.info(f'New credentials saved: {username}')
+        else:
+            ui.notify('Please enter both username and password', title='Warning', duration=3000)
+    
+    def update_credentials_dropdown(self):
+        self.credentials_dropdown.options = [cred['username'] for cred in self.db.get_all_credentials()]
+        self.credentials_dropdown.update()
         
     def save_schedule(self, cron_expression):
         self.db.insert_cron_schedule(cron_expression)
@@ -62,10 +106,14 @@ class initUI():
         scanner_data = self.db.get_scanner_data()
         for data in scanner_data:
             scan_type, ip_range, scan_arguments = data[1:]
+            if scan_arguments is None:
+                scan_arguments = None
+            else:
+                scan_arguments = scan_arguments.split(' ')
             self.scanner_data.append({
                 "ip_range": ip_range,
                 "scan_type": scan_type,
-                "scan_arguments": scan_arguments.split(' ')
+                "scan_arguments": scan_arguments
             })
         if self.card_container is not None:
             self.update_scanner_cards()
@@ -79,9 +127,13 @@ class initUI():
             self.db.insert_script_data(self.script_data['script'], self.script_data['enabled'])
         else:
             self.db.update_script_data(self.script_data['script'], self.script_data['enabled'])
+            
+    def set_script_data(self):
+        script_data = self.db.get_script_data()
+        if script_data is not None:
+            self.script_data = {'script': script_data[1],
+                                'enabled': script_data[2]}
 
-
-        
     def get_settings(self) -> dict:
         nmap_data = self.scanner_data
         script_data = self.script_data
@@ -92,29 +144,34 @@ class initUI():
         nmap_ip_range_input = ui.input('Enter the target IP address',
                                        validation=lambda value: 'Invalid IP address!'
                                        if not (self.is_valid_ip(value))
-                                       else None
-                                       )
-        ui.label('Enter scan arguments')
-        _scan_arguments = ui.input('Enter scan arguments', value='-sV')
-        ui.button('Add Nmap Scanner', on_click=lambda: self.on_add_nmap_click('nmap',nmap_ip_range_input.value, _scan_arguments.value))
+                                       else None)
+        _scan_arguments = ui.input('Enter arguments [optional]', value='')
+        _arg = _scan_arguments.value
+        if _arg == '':
+            _arg = None
+        ui.button('Add Nmap Scanner', on_click=lambda: self.on_add_nmap_click('nmap',nmap_ip_range_input.value, _arg))
 
     def create_openvas_input(self):
-        self.ip_range_input = ui.input('Enter the target IP address',
+        ip_range_input = ui.input('Enter the target IP address',
                                        validation=lambda value: 'Invalid IP address!'
                                        if not (self.is_valid_ip(value))
                                        else None
                                        )
-        ui.label('Enter scan arguments')
-        ui.button('Add OpenVAS Scanner', on_click=self.on_add_openvas_click)
-        
-    def on_add_openvas_click(self):
-        logger.info("OpenVAS added")
-        print('OpenVAS clicked with ip range:', self.get_ip_range())
-        pass
-            # self.on_add_click('openvas')
+        ui.button('Add OpenVAS Scanner',on_click=lambda: self.on_add_openvas_click('openvas', ip_range_input.value))
+
+    def on_add_openvas_click(self, scan_type, ip_range):
+        logger.info(f'OpenVAS scanner added with IP range: {ip_range}')
+        _scanner_dict = {"ip_range": ip_range,
+                         "scan_type": scan_type,
+                         "scan_arguments": None}
+        self.scanner_data.append(_scanner_dict)
+        self.db.insert_scanner_data(scan_type,ip_range, None)
+        self.update_scanner_cards()
     
     def create_nmap_scripts_input(self):
+        script_enabled = True if self.script_data['enabled'] == 1 else False
         switch = ui.switch('Scan with scripts', on_change=lambda: self.on_switch_scripts_change(switch, script))
+        switch.value = script_enabled
         with ui.column().bind_visibility_from(switch, 'value'):
             ui.label('Select Nmap script')
             script = ui.select(['vulners.nse', 'vulscan/.nse'], value='vulners.nse', on_change=lambda: self.on_script_select_change(script.value))
@@ -127,9 +184,8 @@ class initUI():
         print(f'Uploaded file: {file.name}')
             
     
-    def on_switch_scripts_change(self,switch_input, script_input, ip_range='127.0.0.1'):
+    def on_switch_scripts_change(self,switch_input, script_input):
         self.script_name = script_input.value
-        print('Nmap scripts clicked with ip range:', self.get_ip_range())
         logger.info(f'Scripts enabled: {switch_input.value}')
         if switch_input.value:
             script_name = self.script_name.split('.')[0]
@@ -159,7 +215,7 @@ class initUI():
     def on_add_nmap_click(self, scan_type, ip_range, scan_arguments):
         logger.info(f'Nmap scanner added with IP range: {ip_range} and arguments: {scan_arguments}')
         if scan_arguments is None:
-            argument_list = []
+            argument_list = None
         else:
             argument_list = self.split_arguments(scan_arguments)
         _scanner_dict = {"ip_range": ip_range,
@@ -183,15 +239,20 @@ class initUI():
         # Clear all existing cards and repopulate with current scanner data
         self.card_container.clear()
         logger.info(f"Updating scanner cards: {self.scanner_data}")
-        print(f"Updating scanner cards: {self.scanner_data}")
         for index, scanner in enumerate(self.scanner_data):
             with self.card_container:
                 with ui.card():
-                    ui.label(f"Scanner: {scanner['ip_range']} | Type: {scanner['scan_type']} | Arguments: {scanner['scan_arguments']}")
+                    _args = scanner['scan_arguments']
+                    if _args is None or _args == 'None':
+                        label_text = f"Hosts: {scanner['ip_range']} \n| Type: {scanner['scan_type']}"
+                    else:
+                        label_text = f"Hosts: {scanner['ip_range']} | Type: {scanner['scan_type']} | Arguments: {_args}"
+                    ui.label(label_text)
                     ui.button('x', on_click=lambda idx=index: self.remove_scanner(idx))
         if self.script_data['enabled']:
             with self.card_container:
-                ui.label('Scripts are enabled').style('color: red')
+                with ui.card().style('background-color: #f0f0f0;'):
+                    ui.label(f"Script: {self.script_data['script']} is enabled")
 
     def clear_scanner_data(self):
         self.clear_input()
