@@ -101,7 +101,7 @@ class Database:
     def get_current_credentials(self):
         try:
             with self.connection:
-                cursor = self.connection.execute('SELECT username FROM openvas_credentials WHERE is_set = TRUE')
+                cursor = self.connection.execute('SELECT username, password FROM openvas_credentials WHERE is_set = TRUE')
                 return cursor.fetchone()
         except sqlite3.Error as e:
             logger.error(f"Error getting current credentials: {e}")
@@ -128,14 +128,14 @@ class Database:
             logger.error(f"Error getting scanner data: {e}")
             return None
 
-    def delete_by_id(self, id, what):
+    def delete_by_id(self, _id, what):
         """"Deletes data from the given table, by ID.
         id should correspond to idx+1 on the given array
         what is either scanner_data or script_data"""
         try: 
             with self.connection:
-                self.connection.execute(f'DELETE FROM {what} WHERE id = ?', (id,))
-                logger.info(f"Line deleted from {what} with id {id}")
+                self.connection.execute(f'DELETE FROM {what} WHERE id = ?', (_id,))
+                logger.info(f"Line deleted from {what} with id {_id}")
         except sqlite3.Error as e:
             logger.error(f"Error deleting data: {e}")
     
@@ -148,6 +148,15 @@ class Database:
                 ''', (script_name, enabled))
         except sqlite3.Error as e:
             logger.error(f"Error inserting script data: {e}")
+            
+    def get_last_inserted_id(self):
+        try:
+            with self.connection:
+                cursor = self.connection.execute('SELECT last_insert_rowid()')
+                return cursor.fetchone()[0]
+        except sqlite3.Error as e:
+            logger.error(f"Error getting last inserted ID: {e}")
+            return None
 
     def get_script_data(self):
         try:
@@ -169,13 +178,13 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Error updating script data: {e}")
             
-    def insert_result_data(self, scan_date, nmap_scan_id, script_scan_id):
+    def insert_result_data(self, scan_date, nmap_scan_id, script_scan_id, ovas_scan_id):
         try:
             with self.connection:
                 self.connection.execute('''
-                    INSERT INTO results (scan_date, nmap_scan_id, script_scan_id)
-                    VALUES (?, ?, ?)
-                ''', (scan_date, nmap_scan_id, script_scan_id))
+                    INSERT INTO results (scan_date, nmap_scan_id, script_scan_id, ovas_scan_id)
+                    VALUES (?, ?, ?, ?)
+                ''', (scan_date, nmap_scan_id, script_scan_id, ovas_scan_id))
         except sqlite3.Error as e:
             logger.error(f"Error inserting result data: {e}")
 
@@ -191,7 +200,7 @@ class Database:
     def get_results_by_date(self, date):
         try:
             with self.connection:
-                cursor = self.connection.execute('''SELECT nmap_scan_id, script_scan_id FROM results WHERE scan_date = ?''', (date,))
+                cursor = self.connection.execute('''SELECT nmap_scan_id, script_scan_id, ovas_scan_id FROM results WHERE scan_date = ?''', (date,))
                 return cursor.fetchall()
         except sqlite3.Error as e:
             logger.error(f"Error getting results by date: {e}")

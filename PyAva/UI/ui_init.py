@@ -21,8 +21,8 @@ class initUI():
         self.first_init = False
 
     def create_layout(self):
-        with ui.grid():
-            with ui.row():
+        with ui.splitter().style('padding: 10px') as splt:
+            with splt.before:#.style('padding-right: 10px; box-sizing: border-box;'):
                 with ui.column():
                     ui.label('Initial setup')
                     with ui.expansion('Nmap Scanner'):
@@ -38,8 +38,10 @@ class initUI():
                             self.create_credentials_input()
                         ui.button('Clear all scanners', on_click=self.clear_scanner_data)
                         ui.button('Clear database', on_click=self.db.clear_data)
-                with ui.column().style('position: absolute; right:0;top:0; width: 50%;border-left: 3px solid #ccc;') as self.card_container:
-                    self.update_scanner_cards()  # Initialize scanner cards at the start of this with statement
+            with splt.after:#.style('padding-left: 10px; box-sizing: border-box; border-left: 3px solid #ccc;'):
+                ui.label('Scanners: ')
+                with ui.column().style('padding: 10px') as self.card_container:
+                    self.update_scanner_cards()
     
     def create_schedule_input(self):
         cron_input = ui.input('Set a new Cron expression')
@@ -50,7 +52,7 @@ class initUI():
             ui.label('Or select an existing schedule:').style('border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px;')
             schedule_dropdown = ui.select([s for s in existing_schedules])
             ui.button('Set as Schedule', on_click=lambda: self.set_valid_schedule(schedule_dropdown.value))
-
+    
     def create_credentials_input(self):
         existing_credentials = self.db.get_all_credentials()
         ui.label('Select existing credentials:')
@@ -105,19 +107,20 @@ class initUI():
     def load_settings_from_db(self):
         scanner_data = self.db.get_scanner_data()
         for data in scanner_data:
-            scan_type, ip_range, scan_arguments = data[1:]
+            scanner_id, scan_type, ip_range, scan_arguments = data
             if scan_arguments is None:
                 scan_arguments = None
             else:
                 scan_arguments = scan_arguments.split(' ')
             self.scanner_data.append({
+                "id": scanner_id,
                 "ip_range": ip_range,
                 "scan_type": scan_type,
                 "scan_arguments": scan_arguments
             })
+        print(f"Loaded scanner data: {self.scanner_data}")
         if self.card_container is not None:
             self.update_scanner_cards()
-        #TODO: El lehessen menteni majd több scan configot is, ezeket egy ID-vel kellene jelölni.
     
     def reset_script_db(self):
         logger.info("resetting script data in db")
@@ -135,16 +138,26 @@ class initUI():
                                 'enabled': script_data[2]}
 
     def get_settings(self) -> dict:
-        nmap_data = self.scanner_data
+        scanner_data = self.scanner_data
         script_data = self.script_data
+        #split into openvas and nmap:
+        nmap_data = []
+        openvas_data = []
+        for scanner in scanner_data:
+            if scanner['scan_type'] == 'nmap':
+                nmap_data.append(scanner)
+            elif scanner['scan_type'] == 'openvas':
+                openvas_data.append(scanner)
         return {'nmap': nmap_data,
-                'script': script_data}
+                'script': script_data,
+                'openvas': openvas_data}
         
     def create_nmap_input(self):
         nmap_ip_range_input = ui.input('Enter the target IP address',
                                        validation=lambda value: 'Invalid IP address!'
                                        if not (self.is_valid_ip(value))
                                        else None)
+        ui.separator()
         _scan_arguments = ui.input('Enter arguments [optional]', value='')
         _arg = _scan_arguments.value
         if _arg == '':
@@ -154,7 +167,7 @@ class initUI():
     def create_openvas_input(self):
         ip_range_input = ui.input('Enter the target IP address',
                                        validation=lambda value: 'Invalid IP address!'
-                                       if not (self.is_valid_ip(value))
+                                       if not (self.is_valid_ip(value, exclude='cidr'))
                                        else None
                                        )
         ui.button('Add OpenVAS Scanner',on_click=lambda: self.on_add_openvas_click('openvas', ip_range_input.value))
@@ -164,8 +177,10 @@ class initUI():
         _scanner_dict = {"ip_range": ip_range,
                          "scan_type": scan_type,
                          "scan_arguments": None}
-        self.scanner_data.append(_scanner_dict)
         self.db.insert_scanner_data(scan_type,ip_range, None)
+        _scanner_dict['id'] = self.db.get_last_inserted_id()  # Get the last inserted ID
+        self.scanner_data.append(_scanner_dict)
+        print(f"Added scanner: {self.scanner_data}")
         self.update_scanner_cards()
     
     def create_nmap_scripts_input(self):
@@ -182,7 +197,6 @@ class initUI():
     def on_xml_file_upload(self, file):
         # Handle the uploaded XML file
         print(f'Uploaded file: {file.name}')
-            
     
     def on_switch_scripts_change(self,switch_input, script_input):
         self.script_name = script_input.value
@@ -221,18 +235,20 @@ class initUI():
         _scanner_dict = {"ip_range": ip_range,
                          "scan_type": scan_type,
                          "scan_arguments": argument_list}
-        self.scanner_data.append(_scanner_dict)
         self.db.insert_scanner_data(scan_type, ip_range, scan_arguments)
+        _scanner_dict['id'] = self.db.get_last_inserted_id()  # Get the last inserted ID
+        self.scanner_data.append(_scanner_dict)
         print(f"Added scanner: {self.scanner_data}")
         self.update_scanner_cards()
 
     def remove_scanner(self, index):
         # Remove scanner by index and refresh the cards
         if 0 <= index < len(self.scanner_data):
+            scanner_id = self.scanner_data[index]['id']
             del self.scanner_data[index]
-            self.db.delete_by_id(index+1, 'scanner_data')
-            logger.info(f"Removed scanner at index {index}: {self.scanner_data}")
-            print(f"Removed scanner at index {index}: {self.scanner_data}")
+            self.db.delete_by_id(scanner_id, 'scanner_data')
+            logger.info(f"Removed scanner at index {scanner_id}: {self.scanner_data}")
+            print(f"Removed scanner at index {scanner_id}: {self.scanner_data}")
             self.update_scanner_cards()
 
     def update_scanner_cards(self):
@@ -240,6 +256,7 @@ class initUI():
         self.card_container.clear()
         logger.info(f"Updating scanner cards: {self.scanner_data}")
         for index, scanner in enumerate(self.scanner_data):
+            print(scanner, index)
             with self.card_container:
                 with ui.card():
                     _args = scanner['scan_arguments']
@@ -251,7 +268,7 @@ class initUI():
                     ui.button('x', on_click=lambda idx=index: self.remove_scanner(idx))
         if self.script_data['enabled']:
             with self.card_container:
-                with ui.card().style('background-color: #f0f0f0;'):
+                with ui.card().style('background-color: #ff7033;'):
                     ui.label(f"Script: {self.script_data['script']} is enabled")
 
     def clear_scanner_data(self):
@@ -278,33 +295,21 @@ class initUI():
         else:
             return self.scan_arguments.value
 
-    def is_valid_ip(self, ip, is_type_return=False):
-        re_dict = {}
+    def is_valid_ip(self, ip, exclude=None):
         ipv4_pattern = r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$'
         cidr_pattern = r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}\/(3[0-2]|[12]?\d)$'
         partial_range_pattern = r'^((25[0-5]|(2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]))\.){3}(25[0-5]|(2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]))-(25[0-5]|(2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]))$'
         range_pattern = r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}-(\d+)\.((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){3}$'
-        if re.match(ipv4_pattern, ip):
-            re_dict = {'val': True,
-                       'type:': 'ipv4'}
+        if re.match(ipv4_pattern, ip) and exclude != 'ipv4':
             return True
-        elif re.match(cidr_pattern, ip):
-            re_dict = {'val': True,
-                       'type:': 'cidr'}
+        elif re.match(cidr_pattern, ip) and exclude != 'cidr':
             return True
-        elif re.match(range_pattern, ip):
-            re_dict = {'val': True,
-                       'type:': 'range'}
+        elif re.match(range_pattern, ip) and exclude != 'range':
             return True
-        elif re.match(partial_range_pattern, ip):
-            re_dict = {'val': True,
-                       'type:': 'partial_range'}
+        elif re.match(partial_range_pattern, ip) and exclude != 'partial_range':
             return True
         else:
-            re_dict = {'val': False,
-                       'type:': None}
-        return re_dict if is_type_return else re_dict['val']
-
+           return False
     def get_scan_type(self):
         return self.scan_type.value
 

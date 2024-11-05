@@ -7,8 +7,9 @@ import logging
 def start(window_size = (640, 1024)):
     configure_logger()
     main = mainUI()
+    ui.dark_mode().enable()
     ui.run(window_size=window_size, reload=False) # native = True: it opens in a native window instaed of a webbrowser
-
+    
 def configure_logger():
     log_folder = os.path.join('..', 'logs')
     if not os.path.exists(log_folder):

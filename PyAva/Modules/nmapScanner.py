@@ -19,9 +19,11 @@ class Scanner(BaseScanner):
 
     def do_scan(self, ip_range, arguments: list):
         self.scan_completed = False
-        joined_arguments = self.join_arguments(arguments)
+        if arguments is not None:
+            joined_arguments = self.join_arguments(arguments)
+        else:
+            joined_arguments = ''
         logger.info(f"Scanning {ip_range} with arguments: {joined_arguments} id: {self.id}")
-        print(f"Scanning {ip_range} with arguments: {joined_arguments} id: {self.id}")
         if self.is_async:
             self.scn.scan(hosts=ip_range, arguments=joined_arguments, callback=self.scan_callback)
 

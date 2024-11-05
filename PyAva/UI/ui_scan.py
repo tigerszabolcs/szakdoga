@@ -22,6 +22,7 @@ class scanUI():
         self.countdown_label = None
         self.log_label = None
         self.nmap_scanner_dicts: list[dict] = []
+        self.openvas_scanner_dicts: list[dict] = []
         self.scan_results:list = []
         self.script_data = {}
         self.db = Database()
@@ -69,10 +70,7 @@ class scanUI():
     def on_stop_sch_click(self):
         schedule.clear()
         ui.notify('Scheduled scans stopped. Next scan won\'t start')
-                
-    def start_status_check(self):
-        logger.log(logging.INFO, 'Starting async check loop for scan status')
-        asyncio.create_task(self.check_scanner_status())
+
     
     def on_sch_click(self):
         self.start_scheduled_scanning()
@@ -109,26 +107,30 @@ class scanUI():
     def on_scan_click(self):
         self.db=Database()
         self.load_settings_from_db()
-        # self.create_scanner_dict()
-        logger.log(logging.INFO, 'Starting nmap scan')
         for s_dict in self.nmap_scanner_dicts:
             if s_dict['scan_type'] == 'nmap':
+                print("Starting nmap scan")
                 _scn = s_dict['scanner']
                 _scn.do_scan(s_dict['ip_range'], s_dict['scan_arguments'])
                 _scn_args = s_dict['scan_arguments']
                 self.console_log(f'Starting scan {_scn.id} with arguments: {_scn_args}')
-        self.start_status_check()
-
+        for s_dict in self.openvas_scanner_dicts:
+            if s_dict['scan_type'] == 'openvas':
+                print("Starting OpenVAS scan")
+                _scn = s_dict['scanner']
+                _scn.do_scan(s_dict['ip_range'])
+                self.console_log(f'Starting OpenVAS scan {_scn.id}')
+        asyncio.create_task(self.check_scanner_status())
+        logger.log(logging.INFO, 'Starting nmap scan')
+            
     def parse_nmap_scan_results(self, filename):
         print("Parsing nmap scan results")
         logger.log(logging.INFO, f'Parsing nmap scan results from {filename}')
         # Parse the XML file
         tree = ET.parse(filename)
         root = tree.getroot()
-
         # Dictionary to store the IP addresses and their open ports
         ip_open_ports = {}
-
         # Loop through each result in the XML file
         for result in root.findall('Result'):
             # Parse the <scan> element, which contains scan details
@@ -142,11 +144,9 @@ class scanUI():
                         for port, port_details in details['tcp'].items():
                             if port_details['state'] == 'open':
                                 open_ports.append(port)
-
                     # Add IP address and its open ports to the dictionary
                     if open_ports:
                         ip_open_ports[ip] = open_ports
-                        
         # result:  {'127.0.0.1': [443, 445, 5000, 7000, 8000, 8080]}
         print("ip and open ports are: ",ip_open_ports)
         logger.log(logging.INFO, f'Parsed nmap scan results: {ip_open_ports}')
@@ -214,24 +214,35 @@ class scanUI():
         logger.info('Loading settings from database')
         print("Loading settings from database")
         self.nmap_scanner_dicts.clear()
+        self.openvas_scanner_dicts.clear()
         scanner_data = self.db.get_scanner_data()
+        _username, _password = self.db.get_current_credentials()
         for data in scanner_data:
             scan_type, ip_range, scan_arguments = data[1:]
             _scanner = None
             if scan_type == 'nmap':
                 _scanner = NmapScanner()
             elif scan_type == 'openvas':
-                _scanner = OpenVASScanner()
+                _scanner = OpenVASScanner(username=_username, password=_password)
             _id = _scanner.id if _scanner else None
             if _scanner is not None:
-                self.nmap_scanner_dicts.append({
-                    'id': _id,
-                    'scanner': _scanner,
-                    'ip_range': ip_range,
-                    'scan_type': scan_type,
-                    'scan_arguments': scan_arguments.split(' '),
-                    'scan_completed': False
-                })
+                if scan_type == 'nmap':
+                    self.nmap_scanner_dicts.append({
+                        'id': _id,
+                        'scanner': _scanner,
+                        'ip_range': ip_range,
+                        'scan_type': scan_type,
+                        'scan_arguments': scan_arguments.split(' ') if scan_arguments else None,
+                        'scan_completed': False
+                    })
+                elif scan_type == 'openvas':
+                    self.openvas_scanner_dicts.append({
+                        'id': _id,
+                        'scanner': _scanner,
+                        'ip_range': ip_range,
+                        'scan_type': scan_type,
+                        'scan_completed': False
+                    })
             else:
                 self.console_log(f'Invalid scan type: {scan_type}')
                 raise ValueError(f'Invalid scan type: {scan_type}')
@@ -249,15 +260,21 @@ class scanUI():
             if item['scan_completed']:
                 self.nmap_scanner_dicts.remove(item)
                 logger.info(f'Removed scanner: {item}')
+        for item in self.openvas_scanner_dicts:
+            if item['scan_completed']:
+                self.openvas_scanner_dicts.remove(item)
+                logger.info(f'Removed scanner: {item}')
                 
     async def wait_for_file(self, filename):
         while not os.path.exists(filename):
             await asyncio.sleep(1)
 
     async def check_scanner_status(self):
+        print("Checking scanner status")
         id_list = {'nmap': [],
                         'script': [],
                         'openvas': []}
+        tick = False
         while True:
             all_finished = True
             for _scn in self.nmap_scanner_dicts:
@@ -269,6 +286,19 @@ class scanUI():
                     id_list['nmap'].append(_id)
                     _ip_range = _scn['ip_range']
                     self.console_log(f'Scan {_id} on ip(s): {_ip_range} completed')
+            for _scn in self.openvas_scanner_dicts:
+                status, progress, scanning = _scn['scanner'].is_scanning()
+                if scanning:
+                    all_finished = False
+                    tick = not tick
+                    if tick:
+                        self.console_log(f'OpenVAS scan {_scn["id"]} : {status} ({progress}%)')
+                elif not _scn['scan_completed']:
+                    _scn['scan_completed'] = True
+                    _id = _scn['id']
+                    _scn['scanner'].save_report()
+                    id_list['openvas'].append(_id)
+                    self.console_log(f'OpenVAS scan {_id} : {status}')
             if all_finished:
                 print("All nmap scans completed, script data: ", self.script_data)
                 self.console_log('Nmap scans completed')
@@ -279,7 +309,7 @@ class scanUI():
                     id_list['script'].append(script_id)
                     self.console_log('Script scans completed')
                 _dtime = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                self.db.insert_result_data(str(_dtime), str(id_list['nmap']), str(id_list['script']))
+                self.db.insert_result_data(str(_dtime), str(id_list['nmap']), str(id_list['script']), str(id_list['openvas']))
+                self.console_log(f'All scans completed at {_dtime}')
                 break
-            await asyncio.sleep(1)
-    #TODO: Ütemezni lehessen a scannereket pl.: cron, vagy pl nmap lefutása után futtasa az openvas scannt a megkapott ip-ken
+            await asyncio.sleep(10)
