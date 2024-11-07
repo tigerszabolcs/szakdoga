@@ -276,9 +276,11 @@ class scanUI():
                         'openvas': []}
         tick = False
         while True:
+            nmap_finished = True
             all_finished = True
             for _scn in self.nmap_scanner_dicts:
                 if _scn['scanner'].is_scanning():
+                    nmap_finished = False
                     all_finished = False
                 elif not _scn['scan_completed']:
                     _scn['scan_completed'] = True
@@ -299,8 +301,7 @@ class scanUI():
                     _scn['scanner'].save_report()
                     id_list['openvas'].append(_id)
                     self.console_log(f'OpenVAS scan {_id} : {status}')
-            if all_finished:
-                print("All nmap scans completed, script data: ", self.script_data)
+            if nmap_finished:
                 self.console_log('Nmap scans completed')
                 if self.script_data['enabled'] and self.script_data != {}:
                     filename = os.path.join('..', 'data', 'scanresults', f'scan_{_id}.xml')
@@ -308,6 +309,7 @@ class scanUI():
                     script_id = await self.start_script_scan(id_list['nmap'], self.script_data['script'])
                     id_list['script'].append(script_id)
                     self.console_log('Script scans completed')
+            if all_finished:
                 _dtime = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 self.db.insert_result_data(str(_dtime), str(id_list['nmap']), str(id_list['script']), str(id_list['openvas']))
                 self.console_log(f'All scans completed at {_dtime}')
